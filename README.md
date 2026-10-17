@@ -5,7 +5,7 @@
 **Solution:** Capy writes the definition of done before it investigates, proves the root cause with a counterfactual on per-rank timings, has a second model family try to falsify it, asks a human at most once, and closes the incident only after 200 measured steps at ≥ 97% of normal speed.
 
 <p align="center"><a href="https://www.youtube.com/watch?v=RyOno2s7pEo"><img src="docs/demo-thumbnail.jpg" width="900" alt="Capy console replaying a real incident. Click to watch the 2-minute demo on YouTube"></a></p>
-<p align="center"><b><a href="https://www.youtube.com/watch?v=RyOno2s7pEo">▶ Watch the 2-minute demo</a></b> · Crusoe × NVIDIA hackathon, <i>Done Means Done</i> track · every agent runs on Crusoe Managed Inference</p>
+<p align="center"><b><a href="https://www.youtube.com/watch?v=RyOno2s7pEo">▶ Watch the 2-minute demo</a></b> · <a href="FAQ.md">Judges' FAQ</a> · Crusoe × NVIDIA hackathon, <i>Done Means Done</i> track · every agent runs on Crusoe Managed Inference</p>
 
 > AutoClusters replaces dead GPUs. Capy finds the slow ones, and proves it.
 
