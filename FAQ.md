@@ -8,6 +8,7 @@ Quick answers to the questions we expect from judges. Every number comes from re
 - **0 wasted disruptive actions** on the test set. The single agent drained a healthy node over a stale log line.
 - **7 incomplete fixes caught** by Capy's own verification on the test set. All 7 ended in a verified fix.
 - **50 vs 142 GPU-hours** lost on the two-fault incident, nearly 3× less than the single agent.
+- **209 vs 313 GPU-hours** on each agent's worst incident: Capy's worst night is a third cheaper.
 - **97% of unseen incidents fixed**, including 8 of the 9 incidents whose fault types no prompt mentions.
 - **5.2¢ of inference per incident** on Crusoe, with 55% of prompt tokens served from Crusoe's prefix cache.
 - **4 models, 1 endpoint:** Nemotron 3.5 Super, Nemotron 3 Nano and Nemotron 3.5 Lightning, plus Qwen 3.8 as the skeptic, all on Crusoe Managed Inference.

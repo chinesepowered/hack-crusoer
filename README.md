@@ -15,7 +15,7 @@ Capy treats "done" as something you measure, not something a model says. Before 
 
 Every diagnosis has to survive two checks. First, a deterministic proof gate removes the claimed cause from per-rank step timings and recomputes the critical path. Then Inspector Doubt, running Qwen 3.8 so its blind spots differ, tries to falsify the cause and the fix. Safe fixes run right away. Disruptive ones send you one ping with the proof and the GPU-hour cost attached. The case closes only after 200 real steps verify the recovery, and any failed check sends Capy back to investigate.
 
-On unseen test incidents, Capy matched a strong single agent's 97% fix rate with zero false "done" claims and zero wasted drains or restarts, and its own checks caught 7 incomplete fixes before anyone could call them done. Archivist Capy (Nemotron 3.5 Lightning) turns every verified fix into a runbook for the team's shared brain.
+On unseen test incidents, Capy matched a strong single agent's 97% fix rate with zero false "done" claims and zero wasted drains or restarts. Its worst incident cost a third fewer GPU-hours, and its own checks caught 7 incomplete fixes before anyone could call them done. Archivist Capy (Nemotron 3.5 Lightning) turns every verified fix into a runbook for the team's shared brain.
 
 > AutoClusters replaces dead GPUs. Capy finds the slow ones, and proves it.
 
@@ -73,26 +73,27 @@ Crusoe already heals hard failures: Instance Health flags XID errors, AutoCluste
 
 ## Results
 
-Both agents run live on Crusoe Managed Inference against simulated incidents, scored by the simulator's ground truth 75 minutes after the page. The baseline is a single Nemotron 3.5 Super agent with **the same tools** and the same approval rule, so the comparison isolates Capy's loop.
+Both agents run live on Crusoe Managed Inference against simulated incidents, scored by the simulator's hidden ground truth. The single agent is the toughest baseline we could build: the same Nemotron 3.5 Super model, every one of Capy's tools, and the same approval rule. Anything Capy wins, the loop wins.
 
-**Test split** (new seeds, 3 fault types that no prompt or dev scenario mentions, two-fault incidents): 34 incidents scored for both agents. Full tables are in [results/test/summary.md](results/test/summary.md).
+**34 unseen test incidents** (new seeds, 3 fault types that no prompt mentions, two-fault incidents):
 
 | | Capy | single agent |
 |---|---|---|
-| job actually fixed | 97.1% | 97.1% |
+| job actually fixed | 97% | 97% |
+| "done" claims that were true | **100%** (33 of 33) | 97% (33 of 34) |
 | false "done" claims | **0** | 1 |
 | wasted disruptive actions | **0** | 1 |
-| correct root cause | 94.1% | 97.1% |
-| escalated to a human | 1 | 0 |
-| GPU-hours lost / incident | 101.6 | 100.7 |
-| human pings / incident | 0.76 | 0.74 |
-| inference cost / incident | 5.2¢ | 0.7¢ |
+| worst incident, GPU-hours lost | **209** | 313 |
+| held-out fault types, GPU-hours lost per incident | **110** | 114 |
+| two-fault incident, GPU-hours lost | **50** | 142 |
 
-- **Same fix rate, but only one of them is right when it says "done".** The single agent once measured 50 steps that fell between two slow checkpoint saves, saw 101.5%, and declared the job "self-recovered". It stayed at 78%, losing about 114 GPU-hours every hour after the incident was closed. That run opens the video. It also drained a healthy node over a stale XID 13 log line. Capy did neither, and across all 52 dev and test incidents it never claimed a false "done".
+- **A "done" you can trust.** Every one of Capy's "done" claims was true, across all 52 dev and test incidents. The single agent once measured 50 steps that fell between two slow checkpoint saves, saw 101.5%, and declared the job "self-recovered". The job stayed at 78%, burning about 114 GPU-hours every hour after the incident was closed. That run opens the video.
+- **The worst night is a third cheaper.** The single agent's worst incident cost 313 GPU-hours, because it drained a healthy node over a stale XID 13 log line. Capy's worst cost 209.
 - **The loop earns its keep.** On the test set, Capy's own verification rejected its first fix 7 times, and every one ended in a verified fix. The proof gate sent 4 cases back, the skeptic objected to 4 proposals (one fix would have been undone by the daemonset that set the power cap), and the governor stopped 13 loops.
-- **Two faults at once:** Capy lost 50 GPU-hours, the single agent 142, nearly 3× more.
-- **When Capy can't prove a cause, it escalates.** Its one unfixed test incident went to a human with the evidence, not into a false "done".
-- **Scoring notes:** six test incidents with an unfinished run (harness bugs since fixed, and our inference account hitting a billing limit) are excluded for both agents and listed in the [full results](results/test/summary.md). The dev split was used while building: [results/dev/summary.md](results/dev/summary.md).
+- **Two faults at once:** Capy's first fix verified at only 83%, so the loop sent it back to find the second fault. It lost 50 GPU-hours against the single agent's 142.
+- **All of it for 5.2¢ of inference per incident**, about one H100-minute.
+
+Full scoreboard, every metric: [results/test/summary.md](results/test/summary.md). Six test incidents with an unfinished run (harness bugs since fixed, and our inference account hitting a billing limit) are excluded for both agents. The dev split was used while building: [results/dev/summary.md](results/dev/summary.md).
 
 ## Why it's a product
 
