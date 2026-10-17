@@ -97,7 +97,8 @@ small { color: var(--muted); }
 .contract .ck { flex: 0 0 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; font-weight: 800; font-size: 12px; color: #fff; }
 .contract li.pass .ck { background: #22C55E; border-color: #22C55E; }
 .contract li.fail .ck { background: var(--bad); border-color: var(--bad); }
-.contract li .note { display: block; color: var(--muted); font-size: 11px; }
+.contract li .note { display: block; color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.contract li > span:last-child { min-width: 0; }
 .contract .pol { font-size: 10px; color: #6D28D9; font-weight: 700; }
 
 .board { display: flex; flex-direction: column; gap: 6px; }
@@ -108,6 +109,9 @@ small { color: var(--muted); }
 .hyp.confirmed { border-color: #86EFAC; background: #F0FDF4; } .hyp.confirmed .st { background: #22C55E; color: #fff; }
 .hyp .ev { color: var(--muted); font-size: 11px; margin-top: 2px; max-height: 30px; overflow: hidden; }
 .hyp .pct { float: right; font-weight: 800; color: #15803D; }
+.ruled { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; font-size: 11.5px; color: var(--muted); padding: 4px 2px; animation: fadein .3s; }
+.ruled .st { font-size: 10px; font-weight: 800; text-transform: uppercase; padding: 1px 6px; border-radius: 999px; background: #E5E7EB; color: #374151; }
+.ruled s { opacity: .8; }
 .proof, .skepticbox, .verifybox { margin-top: 10px; border-radius: 12px; padding: 10px 12px; font-size: 12.5px; animation: fadein .3s; }
 .proof { background: #EFF6FF; border: 1px solid #BFDBFE; }
 .proof.fail { background: #FEF2F2; border-color: #FECACA; }
@@ -142,7 +146,7 @@ small { color: var(--muted); }
 .stamp { position: absolute; top: -26px; right: -18px; background: #fff; border: 5px solid #16A34A; color: #16A34A; font: 900 30px/1 ui-sans-serif, system-ui; padding: 6px 14px; border-radius: 10px; transform: rotate(-8deg); animation: stamp .5s cubic-bezier(.2, 1.6, .4, 1); }
 @keyframes stamp { from { transform: rotate(-8deg) scale(2.2); opacity: 0; } }
 .closedrow { display: flex; gap: 18px; align-items: flex-start; }
-#closedbody h3 { margin: 0 0 6px; font-size: 20px; padding-right: 60px; }
+#closedbody h3 { margin: 0 0 6px; font-size: 20px; padding-right: 190px; }
 #closedbody .kv { display: grid; grid-template-columns: 130px 1fr; gap: 5px 12px; font-size: 13.5px; margin-top: 10px; }
 #closedbody .kv b { color: var(--muted); font-weight: 600; }
 #closedbody .metrics { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }

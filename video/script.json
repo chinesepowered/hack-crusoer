@@ -1,0 +1,113 @@
+{
+ "trace": "demo-checkpoint-capy",
+ "output": "capy-demo.mp4",
+ "segments": [
+  {
+   "action": "title",
+   "title": "Capy",
+   "subtitle": "an on-call team of AI capybaras that babysits your GPU training runs on Crusoe",
+   "say": "Meet Capy: a team of AI capybaras that babysits your GPU training runs on Crusoe, so you can sleep.",
+   "caption": "Meet Capy: a team of AI capybaras that babysits your GPU training runs, so you can sleep."
+  },
+  {
+   "action": "card",
+   "hide": true,
+   "html": "<h2>Agents say “done” when they aren't.</h2><div class='muted'>Real run from our test benchmark · single agent · Nemotron 3.5 Super · same tools as Capy</div><div class='cmp'><div><h3>Single agent</h3><ol><li>checked <b>50 steps</b>: 101.5% of baseline</li><li>noticed the checkpoint config change, called it transient</li><li>declared: <i>“self-recovered… No persistent root cause identified.”</i></li></ol></div><div><h3>What actually happened</h3><ol><li>config v43 moved checkpoints to a slow archive tier: <b>every 100 steps the job froze for 2+ minutes</b></li><li>a 50-step window can miss every freeze</li><li>throughput stayed at <b>78%</b>: <b>~114 GPU-hours lost every hour</b></li></ol></div></div>",
+   "say": "A single AI agent got a slow training run on five hundred twelve GPUs. It checked fifty steps, saw a hundred and one percent, and declared it self-recovered. It was still twenty-two percent slow.",
+   "caption": "A single agent checked 50 steps, saw 101%, and declared “self-recovered”. The run was still 22% slow."
+  },
+  {
+   "action": "play",
+   "hide": true,
+   "until": {
+    "type": "alert"
+   },
+   "say": "Same incident, Capy's turn. Every GPU looks healthy, and no prompt describes this fault.",
+   "caption": "Same incident, Capy's turn. Every GPU looks healthy, and no prompt describes this fault."
+  },
+  {
+   "action": "play",
+   "until": {
+    "type": "say",
+    "who": "contract"
+   },
+   "say": "First, Capy writes the definition of done: two hundred steps at ninety-seven percent, a proven cause, and a skeptic who agrees. Fifty lucky steps can't pass.",
+   "caption": "First, the definition of done: 200 steps at ≥97%, a cause that explains ≥90%, and a skeptic who agrees."
+  },
+  {
+   "action": "play",
+   "until": {
+    "type": "triage"
+   },
+   "say": "Four field capys on Nemotron Nano sweep GPUs, network, storage and changes in parallel.",
+   "caption": "Four Nemotron 3 Nano field capys sweep GPUs, network, storage and changes in parallel."
+  },
+  {
+   "action": "play",
+   "until": {
+    "type": "proposal"
+   },
+   "say": "Detective Capy, on Nemotron Super, spots the contradiction: steps are normal, throughput isn't. A config change moved checkpoints to a slow tier, so every hundred steps the job freezes for over two minutes.",
+   "caption": "Nemotron 3.5 Super: steps are normal, throughput isn't. Checkpoint saves went from 4 s to 140 s after a config change."
+  },
+  {
+   "action": "play",
+   "until": {
+    "type": "proof"
+   },
+   "say": "A counterfactual on the step timings proves it explains ninety-five percent of the slowdown.",
+   "caption": "Proof gate: removing the slow saves explains 95% of the slowdown."
+  },
+  {
+   "action": "play",
+   "until": {
+    "type": "say",
+    "who": "skeptic",
+    "nth": 2
+   },
+   "say": "Inspector Doubt, on Qwen three point eight so its blind spots differ, tries to break the theory, and upholds it.",
+   "caption": "Inspector Doubt (Qwen 3.8, a different model family) tries to falsify it, and upholds."
+  },
+  {
+   "action": "play",
+   "until": {
+    "type": "ping",
+    "after": 0
+   },
+   "say": "The fix needs a restart, so Capy pings you once, with the proof and the cost attached. One tap, back to sleep.",
+   "caption": "A restart is disruptive, so Capy pings you once, with the proof and the cost attached.",
+   "fill": 0.6
+  },
+  {
+   "action": "play",
+   "until": {
+    "type": "verify",
+    "after": 3
+   },
+   "say": "It then measures two hundred real steps across two checkpoints.",
+   "caption": "Verification: 200 real steps across two checkpoints. Saves are back to 4 s."
+  },
+  {
+   "action": "play",
+   "until": {
+    "type": "result"
+   },
+   "say": "Verified at one hundred percent. Case closed: one ping, seven cents of inference.",
+   "caption": "Verified at 100%. Case closed: one ping, 7 cents of inference on Crusoe Managed Inference."
+  },
+  {
+   "action": "score",
+   "hide": true,
+   "say": "On thirty-four unseen incidents, both agents fixed ninety-seven percent. The difference is trust: the single agent falsely declared done once, and drained a healthy node once. Capy did neither, and when it couldn't prove a cause, it escalated instead of guessing.",
+   "caption": "Both fixed 97% of 34 unseen incidents. Single agent: 1 false “done”, 1 wasted drain. Capy: 0 and 0, and it escalated the one it couldn't prove."
+  },
+  {
+   "action": "title",
+   "hide": true,
+   "title": "AutoClusters replaces dead GPUs. Capy finds the slow ones.",
+   "subtitle": "Built on Crusoe Managed Inference · Nemotron 3.5 Super · Nemotron 3 Nano · Nemotron 3.5 Lightning · Qwen 3.8 skeptic",
+   "say": "AutoClusters replaces dead GPUs. Capy finds the slow ones, proves it, and only wakes you when it has to. Built on Crusoe, powered by Nemotron.",
+   "caption": "Capy finds the slow GPUs, proves it, and only wakes you when it has to."
+  }
+ ]
+}

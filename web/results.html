@@ -25,11 +25,13 @@
   <a href="/" class="link" style="margin-left:auto;color:var(--capy);font-weight:700;text-decoration:none">← back to the console</a>
 </header>
 <div class="wrap">
-  <div class="tabs"><button data-s="test" class="on">test (40 unseen incidents)</button><button data-s="dev">dev (18)</button></div>
+  <div class="tabs"><button data-s="test" class="on">test (unseen incidents)</button><button data-s="dev">dev (used while building)</button></div>
   <div class="card"><div class="card-h"><h2 id="title">Overall</h2></div><table id="overall"></table>
     <p class="note">Same model (Nemotron 3.5 Super) and same tools for both. Capy adds: a definition of done written first, parallel Nemotron Nano triage, a governor for loops/stalls/budget, a counterfactual proof gate, a Qwen 3.8 skeptic, deterministic 200-step verification and one-ping approvals. "Fixed" is judged by the simulator's ground truth 75 minutes after the page, not by the agent.</p></div>
   <div class="card"><div class="card-h"><h2>By category</h2></div><table id="cats"></table></div>
   <div class="card"><div class="card-h"><h2>By fault</h2></div><table id="kinds"></table></div>
+  <div class="card" id="exccard" hidden><div class="card-h"><h2>Not scored</h2></div>
+    <p class="note">Incidents where a run did not finish are left out for every agent, so the comparison stays paired. Reasons:</p><ul id="exc" class="note"></ul></div>
 </div>
 <script type="module">
 import { logoSVG } from "/static/capy.js";
@@ -50,6 +52,10 @@ function table(sum) {
 async function load(split) {
   const s = await (await fetch(`/api/results/${split}`)).json();
   document.getElementById("overall").innerHTML = table(s.overall);
+  document.getElementById("title").textContent = `Overall · ${(s.overall.capy || s.overall.baseline || {}).n ?? 0} incidents`;
+  const exc = Object.entries(s.excluded || {});
+  document.getElementById("exccard").hidden = !exc.length;
+  document.getElementById("exc").innerHTML = exc.map(([k, why]) => `<li><b>${k}</b>: ${why.join("; ").replace(/[<>&]/g, "")}</li>`).join("");
   document.getElementById("cats").innerHTML = `<tr><th>category</th><th>n</th><th>Capy fixed / correct / GPU-h</th><th>single agent fixed / correct / GPU-h</th></tr>` +
     Object.entries(s.by_category).filter(([, v]) => v.capy?.n || v.baseline?.n).map(([k, v]) => `<tr><td>${k}</td><td>${v.capy?.n ?? v.baseline?.n}</td>
     <td class="num">${v.capy?.fixed_pct}% / ${v.capy?.diagnosis_correct_pct}% / ${v.capy?.gpu_hours_lost_mean}</td>

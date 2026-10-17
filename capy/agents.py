@@ -34,6 +34,7 @@ APPROVAL_S = 180.0           # simulated human response time to a ping
 LLM_CALL_S = 4.0             # simulated time charged per model call
 HORIZON_S = 75 * 60          # incidents are scored at alert + 75 min
 HARDWARE_TYPES = {"gpu_thermal", "gpu_hardware_failure", "ib_link", "pcie_link"}
+FLEET_TYPES = {"nccl_config", "storage_contention", "checkpoint_storage"}   # no single node to blame
 
 CAST = {
     "lead": ("Detective Capy", "lead"),
@@ -103,6 +104,8 @@ class Run:
 
     # ---------------------------------------------------------------- events
     def emit(self, type_: str, **data):
+        # snapshot the payload: later mutations (e.g. contract statuses) must not rewrite history
+        data = json.loads(json.dumps(data, default=str))
         ev = {"type": type_, "t": round(self.cluster.t, 1), "clock": clock_str(self.cluster.t),
               "wall": round(time.time() - self.wall0, 2), **data}
         self.events.append(ev)
@@ -345,11 +348,48 @@ VERDICT_TOOL = T._fn("verdict", "Your final judgement on the lead's proposal.",
                       "checks": {"type": "array", "items": {"type": "string"}}}, ["upheld"])
 
 
+def _int(v, default: int) -> int:
+    m = re.search(r"\d+", str(v)) if v is not None and not isinstance(v, bool) else None
+    return int(m.group()) if m and int(m.group()) > 0 else default
+
+
+def _gpu_index(g):
+    if isinstance(g, bool):
+        return None
+    if isinstance(g, float) and g.is_integer():
+        g = int(g)
+    if isinstance(g, str):
+        m = re.fullmatch(r"\s*(?:gpu)?\s*(\d+)\s*", g, re.I)
+        g = int(m.group(1)) if m else None
+    return g if isinstance(g, int) and 0 <= g < GPUS_PER_NODE else None
+
+
+def normalize_causes(raw) -> list[dict]:
+    """Root causes as the models send them, made well-formed: one node and at
+    most one integer GPU per cause. A cause naming several is split up."""
+    out = []
+    for r in raw or []:
+        if not isinstance(r, dict):
+            continue
+        node = r.get("node")
+        nodes = [n.strip() for n in (node if isinstance(node, list) else re.split(r",|\band\b", node) if isinstance(node, str) else [])
+                 if isinstance(n, str) and n.strip()] or [None]
+        gpu = r.get("gpu")
+        gpus = [g for g in map(_gpu_index, gpu if isinstance(gpu, list) else [gpu]) if g is not None] or [None]
+        if len(nodes) > 1 or len(gpus) == GPUS_PER_NODE:  # several nodes, or a whole node: node-level causes
+            gpus = [None]
+        for n in nodes:
+            for g in gpus:
+                c = {**r, "node": n, "gpu": g}
+                out.append({k: v for k, v in c.items() if v is not None})
+    return out
+
+
 def removal_for(rc: dict):
     t = rc.get("type")
     if t in ("gpu_thermal", "gpu_power_cap"):
         if rc.get("node") and rc.get("gpu") is not None:
-            return {"kind": "gpu", "node": rc["node"], "gpu": int(rc["gpu"])}
+            return {"kind": "gpu", "node": rc["node"], "gpu": rc["gpu"]}
         if rc.get("node"):
             return {"kind": "node", "node": rc["node"]}
     if t == "cpu_contention" and rc.get("node"):
@@ -366,8 +406,10 @@ def removal_for(rc: dict):
 
 
 ACTION_ARGS = {t["function"]["name"]: set(t["function"]["parameters"]["properties"]) for t in T.ACTION_TOOLS}
-ARG_ALIASES = {"revert_rollout": {"target": "rollout", "name": "rollout", "daemonset": "rollout", "rollout_name": "rollout"},
-               "drain_node": {"node_name": "node", "target": "node"}, "kill_process": {"process_id": "pid"},
+ARG_ALIASES = {"revert_rollout": {"target": "rollout", "name": "rollout", "daemonset": "rollout", "rollout_name": "rollout",
+                                  "component": "rollout"},
+               "drain_node": {"node_name": "node", "target": "node"},
+               "kill_process": {"process_id": "pid", "process": "pid", "proc": "pid", "node_name": "node"},
                "pause_job": {"name": "job", "job_name": "job"}, "reset_power_limit": {"gpu_index": "gpu", "node_name": "node"}}
 
 
@@ -384,6 +426,12 @@ def normalize_plan(plan: list) -> list[dict]:
             if alias and alias not in raw:
                 raw[alias] = v
         args = {k: v for k, v in raw.items() if k in ACTION_ARGS[a["action"]]}
+        if a["action"] == "revert_rollout" and not args.get("rollout"):
+            # no rollout named: a launcher-config revert ({"version": "v42"}) is a restart on that config
+            v = raw.get("config_version") or raw.get("version")
+            if isinstance(v, str) and re.fullmatch(r"v\d+", v.strip()):
+                config = config or v.strip()
+            continue
         if a["action"] == "drain_node" and args.get("node"):
             excl.append(args["node"])
         elif a["action"] == "restart_job":
@@ -434,15 +482,15 @@ class Capy:
                  cast={k: {"name": v[0], "model": DISPLAY.get(MODELS.get(v[1], ""), "")} for k, v in CAST.items() if v[1]})
         run.tick()
         run.emit("alert", text=alert_text(c))
-        declared, outcome, report = [], "escalated", None
+        declared, outcome, report, err = [], "escalated", None, None
         try:
             contract = await self.contract(run)
             findings = await self.triage(run)
             declared, outcome, report = await self.investigate_fix_verify(run, contract, findings)
         except LLMError as e:
             run.emit("error", text=str(e))
-            outcome = "error"
-        return finalize(run, declared, outcome, report)
+            outcome, err = "error", str(e)
+        return finalize(run, declared, outcome, report, err)
 
     # ---------------------------------------------------------------- contract
     async def contract(self, run: Run) -> dict:
@@ -453,7 +501,8 @@ class Capy:
             {"role": "user", "content": f"Alert: {alert_text(c)}\n\nJob status:\n{status}"}],
             max_tokens=1500, thinking=False, json_mode=True)
         k = _loads(msg.get("content") or "")
-        checks = k.get("done_when") or []
+        checks = [d if isinstance(d, dict) else {"check": str(d)}
+                  for d in (k.get("done_when") if isinstance(k.get("done_when"), list) else [])]
         must = [("throughput", f"throughput >= {int(POLICY['min_ratio'] * 100)}% of baseline for {POLICY['verify_steps']} steps", "verify_recovery"),
                 ("explain", f"root cause(s) explain >= {POLICY['min_explained']:.0f}% of the slowdown", "explain_slowdown"),
                 ("skeptic", "independent skeptic upholds the diagnosis", "skeptic")]
@@ -463,9 +512,8 @@ class Capy:
             if key not in text:
                 checks.append({"id": f"D{len(checks) + 1}", "check": check + " (policy)", "verified_by": by})
                 added.append(key)
-        budget = k.get("budget") or {}
-        k["budget"] = {"max_minutes": min(int(budget.get("max_minutes") or POLICY["max_minutes"]), POLICY["max_minutes"]),
-                       "max_tool_calls": min(int(budget.get("max_tool_calls") or POLICY["max_tool_calls"]), POLICY["max_tool_calls"])}
+        budget = k.get("budget") if isinstance(k.get("budget"), dict) else {}
+        k["budget"] = {key: min(_int(budget.get(key), POLICY[key]), POLICY[key]) for key in ("max_minutes", "max_tool_calls")}
         k["done_when"] = [{"id": d.get("id") or f"D{i + 1}", "check": d.get("check", ""), "verified_by": d.get("verified_by", ""),
                            "status": "open"} for i, d in enumerate(checks)]
         k.setdefault("goal", "Restore training throughput to baseline with a proven root cause.")
@@ -570,7 +618,7 @@ class Capy:
             if not res or res.get("escalate"):
                 return [], await self.escalate(run, "investigation budget exhausted without a proven cause"), None
             prop = res["proposal"]
-            rcs = [r for r in (prop.get("root_causes") or []) if isinstance(r, dict)]
+            rcs = normalize_causes(prop.get("root_causes"))
             run.emit("proposal", proposal=prop)
             plan = normalize_plan(prop.get("fix_plan") or [])
             # ---- proof gate (deterministic)
@@ -633,8 +681,10 @@ class Capy:
     async def close(self, run: Run, rcs, prop, proof, verdict, v) -> dict:
         if not any(r.get("type") in HARDWARE_TYPES for r in rcs):
             self.mark(run, "ticket", "pass", "n/a: no hardware fault")
+        ticketed = set()
         for r in rcs:
-            if r.get("type") in HARDWARE_TYPES and r.get("node"):
+            if r.get("type") in HARDWARE_TYPES and r.get("node") and r["node"] not in ticketed:
+                ticketed.add(r["node"])
                 text, _ = run.tb.run("file_support_ticket", {"node": r["node"], "summary": f"{r['type']}: {r.get('detail', '')}"[:200]}, who="lead")
                 run.emit("ticket", text=text, node=r["node"])
                 self.mark(run, "ticket", "pass")
@@ -713,7 +763,8 @@ class Capy:
         disruptive = [a for a in plan if a["action"] in T.DISRUPTIVE]
         if disruptive:
             cost = disruption_cost(c, plan)
-            causes = "; ".join(f"{r.get('type')} on {r.get('node') or 'fleet'}" for r in rcs)
+            causes = "; ".join(r.get("type", "?") + ("" if r.get("type") in FLEET_TYPES or not r.get("node") else f" on {r['node']}")
+                               for r in rcs)
             req = {"title": "Approve fix for " + sim.JOB,
                    "root_causes": rcs, "explained_pct": proof["explained_pct"],
                    "evidence": (prop.get("evidence") or [])[:4],
@@ -812,22 +863,22 @@ async def run_baseline(scenario: dict, llm: LLM, sink=None, approve=None) -> dic
     handlers["declare_resolved"] = declare
     messages = [{"role": "system", "content": BASELINE_PROMPT},
                 {"role": "user", "content": f"Alert: {alert_text(c)}\nTime now: {clock_str(c.t)}Z"}]
-    declared, outcome = [], "gave_up"
+    declared, outcome, err = [], "gave_up", None
     try:
         res = await run.tool_loop(role="baseline", who="baseline", messages=messages,
                                   tools=T.READ_TOOLS + T.ACTION_TOOLS + [T.VERIFY_TOOL, T.DECLARE_TOOL],
                                   handlers=handlers, max_rounds=24, stop={"declare_resolved"})
         if res and "declare" in res:
             d = res["declare"]
-            declared = [r for r in (d.get("root_causes") or []) if isinstance(r, dict)]
+            declared = normalize_causes(d.get("root_causes"))
             outcome = "resolved"
             run.emit("closed", report={"title": "Declared resolved", "summary": d.get("summary", ""),
                                        "fix": d.get("fix_applied", "")})
             run.say("baseline", "Resolved: " + (d.get("summary") or ""))
     except LLMError as e:
         run.emit("error", text=str(e))
-        outcome = "error"
-    return finalize(run, declared, outcome, None)
+        outcome, err = "error", str(e)
+    return finalize(run, declared, outcome, None, err)
 
 
 # ===================================================================== scoring
@@ -844,7 +895,7 @@ def match_causes(declared: list[dict], gt: list[dict]) -> tuple[int, int]:
     return hit, len(gt)
 
 
-def finalize(run: Run, declared: list[dict], outcome: str, report: dict | None) -> dict:
+def finalize(run: Run, declared: list[dict], outcome: str, report: dict | None, error: str | None = None) -> dict:
     c = run.cluster
     t_done = c.t
     horizon = max(run.t_alert + HORIZON_S, c.t + 600)
@@ -878,5 +929,7 @@ def finalize(run: Run, declared: list[dict], outcome: str, report: dict | None) 
         "usage": {k: {kk: (round(vv, 5) if isinstance(vv, float) else vv) for kk, vv in u.items()} for k, u in run.usage.items()},
         "report": report,
     }
+    if error:
+        result["error"] = error
     run.emit("result", result={k: v for k, v in result.items() if k not in ("usage",)})
     return result

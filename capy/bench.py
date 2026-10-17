@@ -90,6 +90,14 @@ def report(rows: list[dict]) -> tuple[dict, str]:
     return summary, "\n".join(md)
 
 
+def trace_error(path: Path) -> str:
+    try:
+        ev = json.loads(path.read_text())["events"]
+        return next(e["text"] for e in ev if e.get("type") == "error")
+    except (OSError, ValueError, KeyError, StopIteration):
+        return "inference error"
+
+
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--split", default="dev", choices=["dev", "test", "all"])
@@ -100,8 +108,37 @@ async def main():
     ap.add_argument("--brain", default=None, help="runbook jsonl for Capy (read-only)")
     ap.add_argument("--learn-brain", default=None, help="runbook jsonl Capy appends to after verified fixes")
     ap.add_argument("--traces", action="store_true")
+    ap.add_argument("--summarize", action="store_true", help="only rebuild summary from runs.jsonl (latest run per scenario+agent)")
     a = ap.parse_args()
     scs = (scenarios.dev_set() if a.split in ("dev", "all") else []) + (scenarios.test_set() if a.split in ("test", "all") else [])
+    if a.summarize:
+        latest = {}
+        for line in (Path(a.out) / "runs.jsonl").read_text().splitlines():
+            r = json.loads(line)
+            latest[(r["scenario"], r["agent"])] = r
+        agents = a.agents.split(",")
+        # Paired comparison: an incident counts only if every agent finished it.
+        # Runs that never finished (harness crash, provider error) are listed, not scored.
+        excluded = {}
+        for sc in scs:
+            for ag in agents:
+                r = latest.get((sc["id"], ag))
+                if r is None:
+                    excluded.setdefault(sc["id"], []).append(f"{ag}: run crashed (harness bug), no result")
+                elif r["outcome"] == "error":
+                    why = r.get("error") or trace_error(Path(a.out) / "traces" / f"{sc['id']}-{ag}.json")
+                    excluded.setdefault(sc["id"], []).append(f"{ag}: {why}"[:160])
+        rows = [r for (sid, ag), r in latest.items() if ag in agents and sid not in excluded
+                and sid in {sc["id"] for sc in scs}]
+        summary, md = report(rows)
+        summary["excluded"] = excluded
+        if excluded:
+            md += "\n\n## Not scored (unfinished runs, excluded for every agent)\n\n" + "\n".join(
+                f"- {sid}: " + "; ".join(why) for sid, why in excluded.items())
+        (Path(a.out) / "summary.json").write_text(json.dumps(summary, indent=1))
+        (Path(a.out) / "summary.md").write_text(md + "\n")
+        print(md)
+        return
     if a.only:
         keep = set(a.only.split(","))
         scs = [s for s in scs if s["id"] in keep]

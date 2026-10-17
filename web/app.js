@@ -16,6 +16,8 @@ const CAST = [
   { key: "field-change", name: "Field Capy · changes", role: "field", model: "Nemotron 3 Nano", job: "triage" },
   { key: "governor", name: "Governor", role: "none", model: "rules", job: "loops · budget" },
 ];
+const FLEET = new Set(["nccl_config", "storage_contention", "checkpoint_storage"]);
+const rcName = (r) => `${r.type}${r.node && !FLEET.has(r.type) ? " on " + r.node : ""}${r.gpu != null && !FLEET.has(r.type) ? " gpu" + r.gpu : ""}`;
 const BASE_CAST = [{ key: "baseline", name: "Regular agent", role: "robot", model: "Nemotron 3.5 Super", job: "single agent, same tools" }];
 
 let S;  // UI state
@@ -145,11 +147,19 @@ function renderContract(items) {
     <span>${esc(d.check)}${d.note ? `<span class="note">${esc(d.note)}</span>` : ""}</span></li>`).join("");
 }
 function renderBoard() {
-  const order = { confirmed: 0, testing: 1, open: 2, ruled_out: 3 };
-  const hs = Object.values(S.hyps).sort((a, b) => (order[a.status] ?? 2) - (order[b.status] ?? 2));
-  $("board").innerHTML = hs.map((h) => `<div class="hyp ${h.status}"><span class="st">${(h.status || "open").replace("_", " ")}</span>
-    ${h.explained_pct > 0 && h.status !== "ruled_out" ? `<span class="pct">${Math.round(h.explained_pct)}%</span>` : ""}
-    <span class="ht">${esc(h.title)}</span>${h.evidence ? `<div class="ev">${esc(h.evidence)}</div>` : ""}</div>`).join("");
+  const order = { confirmed: 0, testing: 1, open: 2 };
+  const all = Object.values(S.hyps);
+  const live = all.filter((h) => h.status !== "ruled_out").sort((a, b) => (order[a.status] ?? 2) - (order[b.status] ?? 2));
+  // ruled-out hypotheses collapse to one line of chips so the proof, skeptic and verify boxes stay on screen
+  const out = all.filter((h) => h.status === "ruled_out");
+  $("board").innerHTML = live.map((h) => `<div class="hyp ${h.status}"><span class="st">${(h.status || "open").replace("_", " ")}</span>
+    ${h.explained_pct > 0 ? `<span class="pct">${Math.round(h.explained_pct)}%</span>` : ""}
+    <span class="ht">${esc(h.title)}</span>${h.evidence ? `<div class="ev">${esc(h.evidence)}</div>` : ""}</div>`).join("")
+    + (out.length ? `<div class="ruled"><span class="st">ruled out</span>${out.map((h) => `<s title="${esc(h.evidence || "")}">${esc(shortHyp(h.title))}</s>`).join("")}</div>` : "");
+}
+function shortHyp(t = "") {
+  const head = t.split(":")[0].trim();
+  return head.length <= 28 ? head : head.slice(0, 26) + "…";
 }
 
 // ------------------------------------------------------------------ event handler
@@ -198,7 +208,7 @@ function handle(ev, live = false) {
       renderBoard(); break;
     case "proposal": {
       S.proposed = ev.proposal.root_causes || [];
-      const rc = (ev.proposal.root_causes || []).map((r) => `${r.type}${r.node ? " @ " + r.node.split("-").pop() : ""}${r.gpu != null ? " gpu" + r.gpu : ""}`).join(" + ");
+      const rc = (ev.proposal.root_causes || []).map(rcName).join(" + ");
       const plan = (ev.proposal.fix_plan || []).map((a) => a.action).join(", ");
       feed(`<span class="w">Detective</span>proposes <b>${esc(rc)}</b> · fix: <code>${esc(plan || "none")}</code>`, "", ev.clock);
       break;
@@ -207,11 +217,13 @@ function handle(ev, live = false) {
       if (ev.ok && S.proposed?.length) {
         // the proven cause becomes the confirmed card; other open leads are closed out
         for (const h of Object.values(S.hyps)) if (h.status !== "ruled_out" && h.status !== "confirmed") h.status = "ruled_out";
-        S.hyps["proven"] = { id: "proven", status: "confirmed", explained_pct: ev.explained_pct,
-          title: S.proposed.map((r) => `${r.type.replace(/_/g, " ")}${r.node ? " on " + r.node : ""}${r.gpu != null ? " gpu" + r.gpu : ""}`).join(" + "),
+        const conf = Object.values(S.hyps).filter((h) => h.status === "confirmed" && h.id !== "proven");
+        if (conf.length) conf.forEach((h) => (h.explained_pct = ev.explained_pct));
+        else S.hyps["proven"] = { id: "proven", status: "confirmed", explained_pct: ev.explained_pct,
+          title: S.proposed.map((r) => rcName(r).replace(/_/g, " ")).join(" + "),
           evidence: S.proposed.map((r) => r.detail || "").join(" | ").slice(0, 220) };
         renderBoard();
-        S.sus = new Set(S.proposed.filter((r) => r.node).flatMap((r) => [r.node, ...(r.gpu != null ? [`${r.node}/${r.gpu}`] : [])]));
+        S.sus = new Set(S.proposed.filter((r) => r.node && !FLEET.has(r.type)).flatMap((r) => [r.node, ...(r.gpu != null ? [`${r.node}/${r.gpu}`] : [])]));
         drawGrid();
       }
       const el = $("proof"); el.classList.remove("hidden");
@@ -277,9 +289,13 @@ function showPing(req, live) {
   sleepYou(false);
   const el = $("ping"); el.classList.remove("hidden");
   $("pingcapy").innerHTML = capySVG({ role: "detective", mood: "idle", size: 40 });
-  const rc = (req.root_causes || []).map((r) => `${r.type} on ${r.node || "fleet"}${r.gpu != null ? " gpu" + r.gpu : ""}`).join(" + ");
+  const rc = (req.root_causes || []).map(rcName).join(" + ");
   const plan = (req.plan || []).map((a) => `${a.action}${a.args?.node ? " " + a.args.node : ""}`).join(", ");
-  $("pingbody").innerHTML = `<b>${esc(rc || req.title)}</b><br>${esc(req.text || "")}
+  const c = req.cost;
+  const line = rc && req.explained_pct != null && c
+    ? `Explains ${Math.round(req.explained_pct)}% of the slowdown. Cost: ~${c.downtime_min} min downtime, ${c.rollback_steps} steps rollback (~${c.gpu_hours} GPU-h).`
+    : req.text || "";
+  $("pingbody").innerHTML = `<b>${esc(rc || req.title)}</b><br>${esc(line)}
     <div class="pc">${req.explained_pct != null ? `<span class="chip">proof: ${Math.round(req.explained_pct)}% explained</span>` : ""}
     ${req.skeptic ? `<span class="chip">skeptic: ${req.skeptic}</span>` : ""}
     ${req.cost ? `<span class="chip cost">~${req.cost.gpu_hours} GPU-h · ${req.cost.downtime_min} min</span>` : ""}</div>
@@ -301,7 +317,7 @@ function showClosed() {
     <div class="kv">${r.root_cause ? `<b>Root cause</b><span>${esc(r.root_cause)}</span>` : ""}${r.proof ? `<b>Proof</b><span>${esc(r.proof)}</span>` : ""}
     ${r.fix ? `<b>Fix</b><span>${esc(r.fix)}</span>` : ""}${r.verification ? `<b>Verified</b><span>${esc(r.verification)}</span>` : ""}</div>
     <div class="metrics">${metric(res.minutes_to_done != null ? res.minutes_to_done + " min" : null, "page → verified done")}
-    ${metric(res.pings, "human pings")}${metric(res.tool_calls, "tool calls")}${metric(res.cost_usd != null ? "$" + res.cost_usd.toFixed(3) : null, "inference on Crusoe")}</div>`;
+    ${metric(res.pings, res.pings === 1 ? "human ping" : "human pings")}${metric(res.tool_calls, "tool calls")}${metric(res.cost_usd != null ? "$" + res.cost_usd.toFixed(3) : null, "inference on Crusoe")}</div>`;
 }
 
 // ------------------------------------------------------------------ replay engine
@@ -358,22 +374,28 @@ async function showScore(split = "test") {
   let s;
   try { s = await (await fetch(`/api/results/${split}`)).json(); } catch { return; }
   const o = s.overall, c = o.capy || {}, b = o.baseline || {};
-  const row = (label, kc, kb, better) => {
-    const vc = c[kc], vb = b[kb ?? kc];
-    const cw = better === "low" ? vc < vb : vc > vb;
-    return `<div class="lab">${label}</div><div class="val ${cw ? "win" : ""}">${vc ?? "–"}</div><div class="val ${!cw && vc !== vb ? "win" : ""}">${vb ?? "–"}</div>`;
+  const fmt = { pct: (v) => `${v}%`, int: (v) => `${v}`, gpuh: (v) => v.toFixed(0), dec: (v) => v.toFixed(2), usd: (v) => `${(v * 100).toFixed(1)}¢` };
+  const row = (label, key, better, f) => {
+    const vc = c[key], vb = b[key];
+    // differences under 3% are a tie, not a win
+    const tie = vc == null || vb == null || Math.abs(vc - vb) <= 0.03 * Math.max(Math.abs(vc), Math.abs(vb));
+    const cw = !tie && (better === "low" ? vc < vb : vc > vb), bw = !tie && !cw;
+    const show = (v) => (v == null ? "–" : fmt[f](v));
+    return `<div class="lab">${label}</div><div class="val ${cw ? "win" : ""}">${show(vc)}</div><div class="val ${bw ? "win" : ""}">${show(vb)}</div>`;
   };
+  const skipped = Object.keys(s.excluded || {}).length;
   $("scorebody").innerHTML = `<h2>${c.n} unseen incidents · Capy vs a single agent (same model, same tools)</h2>
     <div class="muted">test split: new seeds, 3 held-out fault types no prompt mentions, and two-fault incidents</div>
     <div class="vs"><div></div><div class="hd">${capySVG({ role: "detective", mood: "happy", yuzu: true, size: 44 })} Capy team</div><div class="hd">${robotSVG({ size: 44 })} Single agent</div>
-    ${row("job actually fixed (%)", "fixed_pct", null, "high")}
-    ${row("false “done” claims", "false_done_count", null, "low")}
-    ${row("correct root cause (%)", "diagnosis_correct_pct", null, "high")}
-    ${row("GPU-hours lost / incident", "gpu_hours_lost_mean", null, "low")}
-    ${row("wasted disruptive actions", "wasted_disruptive_actions", null, "low")}
-    ${row("human pings / incident", "pings_per_incident", null, "low")}
-    ${row("inference $ / incident", "cost_usd_mean", null, "low")}</div>
-    <div class="scorefoot">Simulated 512× H100 cluster with ground-truth faults; agents run live on Crusoe Managed Inference. Full table: results/test/summary.md</div>`;
+    ${row("job actually fixed", "fixed_pct", "high", "pct")}
+    ${row("false “done” claims", "false_done_count", "low", "int")}
+    ${row("wasted disruptive actions", "wasted_disruptive_actions", "low", "int")}
+    ${row("correct root cause", "diagnosis_correct_pct", "high", "pct")}
+    ${row("GPU-hours lost / incident", "gpu_hours_lost_mean", "low", "gpuh")}
+    ${row("human pings / incident", "pings_per_incident", "low", "dec")}
+    ${row("inference cost / incident", "cost_usd_mean", "low", "usd")}</div>
+    <div class="scorefoot">Simulated 512× H100 cluster with ground-truth faults; agents run live on Crusoe Managed Inference. Green = better by more than 3%.
+    ${skipped ? `${skipped} incidents with an unfinished run are listed in results/test/summary.md, not scored.` : ""}</div>`;
   $("score").classList.remove("hidden");
 }
 function showCard(html) { $("cardbody").innerHTML = html; $("card").classList.remove("hidden"); }

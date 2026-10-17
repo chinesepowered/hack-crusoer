@@ -941,7 +941,10 @@ class Cluster:
         before = [f.t_end for f in self.faults]
         rec = {"t": self.t, "name": name, "args": dict(args or {}), "actor": actor}
         self.actions.append(rec)
-        res = self._action(name, dict(args or {}), actor)
+        try:
+            res = self._action(name, dict(args or {}), actor)
+        except (KeyError, ValueError, TypeError) as e:
+            res = {"ok": False, "error": f"bad arguments for {name}: {e!r}"}
         rec["fixed"] = [f.kind for f, b in zip(self.faults, before) if f.t_end != b]
         rec["ok"] = bool(res.get("ok"))
         return res
@@ -992,6 +995,9 @@ class Cluster:
                 target = "gpu-power-policy"
             elif "fluent-bit" in target:
                 target = "fluent-bit"
+            if not target.strip():
+                return {"ok": False, "error": "revert_rollout needs rollout=<name of the rollout or daemonset>; "
+                                              "a launcher config is reverted with restart_job(config_version=...)"}
             self.reverted[target] = self.t
             if target == "gpu-power-policy":
                 for f in self.faults:

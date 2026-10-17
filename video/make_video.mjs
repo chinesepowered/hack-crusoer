@@ -4,12 +4,13 @@
 //   ELEVENLABS_API_KEY=... NODE_PATH=$(npm root -g) node video/make_video.mjs [--no-tts]
 //
 // Narration clips are cached by text hash, so re-running only bills changed lines.
-import { chromium } from "playwright";
+import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
+const { chromium } = createRequire(import.meta.url)("playwright");  // CJS resolution honors NODE_PATH
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const OUT = path.join(ROOT, "video");
 const AUDIO = path.join(OUT, "audio");
@@ -58,7 +59,7 @@ await page.waitForFunction(() => window.capyReady === true, null, { timeout: 200
 await page.waitForTimeout(400);
 const marks = [];
 for (const s of segs) {
-  const ms = Math.round(s.sec * 1000) + (s.pad_ms ?? 350);
+  const ms = Math.round(s.sec * 1000) + (s.pad_ms ?? 250);
   marks.push({ start: (Date.now() - t0) / 1000, file: s.file });
   await page.evaluate(({ s, ms }) => window.capyVideo(s, ms), { s, ms });
   await page.waitForTimeout(ms);
@@ -68,17 +69,18 @@ const raw = await page.video().path();
 await context.close();
 await browser.close();
 
-// 3. mux: place each clip at its recorded start time
+// 3. mux: cut the page load, place each clip at its recorded start time
+const trim = Math.max(0, marks[0].start - 0.3);
 const inputs = ["-y", "-i", raw];
-const filters = [];
+const filters = [`[0:v]trim=start=${trim.toFixed(3)},setpts=PTS-STARTPTS[vout]`];
 marks.forEach((m, i) => {
   inputs.push("-i", m.file);
-  const d = Math.max(0, Math.round(m.start * 1000));
+  const d = Math.max(0, Math.round((m.start - trim) * 1000));
   filters.push(`[${i + 1}:a]adelay=${d}|${d}[a${i}]`);
 });
-filters.push(`${marks.map((_, i) => `[a${i}]`).join("")}amix=inputs=${marks.length}:normalize=0,volume=1.0[aout]`);
+filters.push(`${marks.map((_, i) => `[a${i}]`).join("")}amix=inputs=${marks.length}:normalize=0,loudnorm=I=-16:TP=-1.5:LRA=11[aout]`);
 const final = path.join(OUT, script.output || "capy-demo.mp4");
-execFileSync("ffmpeg", [...inputs, "-filter_complex", filters.join(";"), "-map", "0:v", "-map", "[aout]",
+execFileSync("ffmpeg", [...inputs, "-filter_complex", filters.join(";"), "-map", "[vout]", "-map", "[aout]",
   "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
   "-c:a", "aac", "-b:a", "160k", "-shortest", final], { stdio: "inherit" });
 console.log("wrote", final, `${dur(final).toFixed(1)} s`);
