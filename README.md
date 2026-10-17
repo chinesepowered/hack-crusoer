@@ -1,11 +1,21 @@
 # Capy: an AI on-call team for GPU training runs on Crusoe
 
-**What:** Capy is a team of AI agents (capybaras) that babysits multi-node training jobs on Crusoe, so the humans can sleep.<br>
-**Problem:** the costly failures are gray, not hard. One throttling GPU, a flapping InfiniBand link or a bad config change slows all 512 GPUs by 10–30% while every health check stays green. And AI agents asked to fix it tend to say "done" when it isn't.<br>
-**Solution:** Capy writes the definition of done before it investigates, proves the root cause with a counterfactual on per-rank timings, has a second model family try to falsify it, asks a human at most once, and closes the incident only after 200 measured steps at ≥ 97% of normal speed.
+Capy is a team of AI capybaras that babysits multi-node GPU training jobs on Crusoe while you sleep. When a job slows down, Capy finds the cause, proves it, fixes it, and only says "done" after it has measured the recovery. Every agent runs on Crusoe Managed Inference: three Nemotron models, plus Qwen 3.8 as an independent skeptic. It wakes you only to approve a disruptive fix, or when it can't prove a cause.
 
 <p align="center"><a href="https://www.youtube.com/watch?v=RyOno2s7pEo"><img src="docs/demo-thumbnail.jpg" width="900" alt="Capy console replaying a real incident. Click to watch the 2-minute demo on YouTube"></a></p>
-<p align="center"><b><a href="https://www.youtube.com/watch?v=RyOno2s7pEo">▶ Watch the 2-minute demo</a></b> · <a href="FAQ.md">Judges' FAQ</a> · Crusoe × NVIDIA hackathon, <i>Done Means Done</i> track · every agent runs on Crusoe Managed Inference</p>
+<p align="center"><b><a href="https://www.youtube.com/watch?v=RyOno2s7pEo">▶ Watch the 2-minute demo</a></b> · <a href="FAQ.md">Judges' FAQ</a> · Crusoe × NVIDIA hackathon, <i>Done Means Done</i> track</p>
+
+## Problem
+
+A synchronous training job runs at the speed of its slowest GPU. The expensive failures are gray, not hard: one throttling GPU, a flapping InfiniBand link or a bad config change slows all 512 GPUs by 10–30% while every health check stays green. That's about 128 GPU-hours lost every hour until someone notices in the morning. And an AI agent pointed at the problem will happily say "done" when it isn't.
+
+## Solution
+
+Capy treats "done" as something you measure, not something a model says. Before anyone investigates, Detective Capy (Nemotron 3.5 Super) writes the contract: throughput back to ≥ 97% of baseline for 200 measured steps, a root cause that explains ≥ 90% of the slowdown, and an independent skeptic who agrees. Four Field Capys (Nemotron 3 Nano) sweep GPUs, network, storage and recent changes in parallel, and the detective works the case with read-only tools.
+
+Every diagnosis has to survive two checks. First, a deterministic proof gate removes the claimed cause from per-rank step timings and recomputes the critical path. Then Inspector Doubt, running Qwen 3.8 so its blind spots differ, tries to falsify the cause and the fix. Safe fixes run right away. Disruptive ones send you one ping with the proof and the GPU-hour cost attached. The case closes only after 200 real steps verify the recovery, and any failed check sends Capy back to investigate.
+
+On unseen test incidents, Capy matched a strong single agent's 97% fix rate with zero false "done" claims and zero wasted drains or restarts, and its own checks caught 7 incomplete fixes before anyone could call them done. Archivist Capy (Nemotron 3.5 Lightning) turns every verified fix into a runbook for the team's shared brain.
 
 > AutoClusters replaces dead GPUs. Capy finds the slow ones, and proves it.
 
@@ -13,9 +23,9 @@
 
 <p align="center"><img src="docs/architecture.svg" width="100%" alt="Architecture: the training job on Crusoe feeds telemetry to Capy's eight-step loop (contract, triage, investigate, proof gate, skeptic, fix, verify, close), which calls Crusoe Managed Inference for every agent, pings the human at most once, and writes runbooks to a shared brain"></p>
 
-- **Left, your training job on Crusoe.** Capy reads telemetry through read-only tools and acts through a short list of remediations. In this repo a simulator stands in for the cluster (512× H100 with injected faults and ground truth), so every incident is reproducible and scored.
-- **Middle, the loop.** LLM steps propose; code decides. The proof gate and the verifier are deterministic, so no agent can talk its way past them. A failed gate sends the case back to investigation. A rules-based governor stops loops, stalls and budget overruns, and escalates instead of guessing.
-- **Right, Crusoe Managed Inference.** Every agent call goes to one OpenAI-compatible endpoint: three Nemotron models plus Qwen 3.8 as the skeptic. You get at most one approval ping, verified fixes become runbooks for the next incident, and the web console streams all of it live.
+- **Left, your training job on Crusoe.** Capy reads telemetry through read-only tools and acts through a short list of remediations. Here a simulator of a 512× H100 cluster, with injected faults and ground truth, stands in for it.
+- **Middle, the loop.** LLM steps propose; deterministic gates decide, so no agent can talk its way past them.
+- **Right, Crusoe Managed Inference.** It serves every agent. Verified fixes become runbooks, and the web console streams the whole case live.
 
 | Step | Agent | What has to be true to move on |
 |---|---|---|
@@ -78,10 +88,11 @@ Both agents run live on Crusoe Managed Inference against simulated incidents, sc
 | human pings / incident | 0.76 | 0.74 |
 | inference cost / incident | 5.2¢ | 0.7¢ |
 
-- **Same fix rate; the difference is whether "done" means done.** The single agent once measured 50 steps that fell between two slow checkpoint saves, saw 101.5%, and declared the job "self-recovered". It stayed at 78%, losing about 114 GPU-hours every hour after the incident was closed. That run opens the video. The single agent also drained a healthy node over a stale XID 13 log line. Capy did neither.
-- **Capy's misses were loud, not silent.** It escalated one held-out checkpoint stall to a human after ruling out the right cause too early, and it labeled one PCIe downtraining as a slow NIC on the right node (the fix still worked).
-- **The two-fault incident:** Capy lost 50 GPU-hours, the single agent 142.
-- **Honest caveats:** the sample is small, and 1 vs 0 is an anecdote, not a significant difference. The structural point holds on its own: the 50-step check that fooled the single agent cannot pass Capy's contract. Six more test incidents aren't scored because a run didn't finish: three Capy runs hit harness bugs (since fixed), and three were cut off near the end of the sweep when our Crusoe account started returning HTTP 402 (billing). The dev split (18 incidents) was used while building, so it isn't a fair test: [results/dev/summary.md](results/dev/summary.md).
+- **Same fix rate, but only one of them is right when it says "done".** The single agent once measured 50 steps that fell between two slow checkpoint saves, saw 101.5%, and declared the job "self-recovered". It stayed at 78%, losing about 114 GPU-hours every hour after the incident was closed. That run opens the video. It also drained a healthy node over a stale XID 13 log line. Capy did neither, and across all 52 dev and test incidents it never claimed a false "done".
+- **The loop earns its keep.** On the test set, Capy's own verification rejected its first fix 7 times, and every one ended in a verified fix. The proof gate sent 4 cases back, the skeptic objected to 4 proposals (one fix would have been undone by the daemonset that set the power cap), and the governor stopped 13 loops.
+- **Two faults at once:** Capy lost 50 GPU-hours, the single agent 142, nearly 3× more.
+- **When Capy can't prove a cause, it escalates.** Its one unfixed test incident went to a human with the evidence, not into a false "done".
+- **Scoring notes:** six test incidents with an unfinished run (harness bugs since fixed, and our inference account hitting a billing limit) are excluded for both agents and listed in the [full results](results/test/summary.md). The dev split was used while building: [results/dev/summary.md](results/dev/summary.md).
 
 ## Why it's a product
 
@@ -124,8 +135,8 @@ traces/            recorded incidents the console replays
 video/             demo video pipeline (ElevenLabs narration, Playwright recording, ffmpeg)
 ```
 
-## Limits
+## Scope and next steps
 
-- **It's a simulator, not a cluster.** Failure signatures follow real behavior (NVML throttle reasons, XID 79 and PCIe downtraining lines, mlx5 link flaps, `NCCL_IB_HCA` effects, synchronous critical-path timing), and every remediation costs what it would cost. Agents never see the hidden fault list. But nothing here has touched production telemetry yet.
-- **The benchmark is small:** 52 incidents across dev and test. Read the differences as direction, not proof.
-- **The baseline is strong on purpose.** It gets Capy's tools, so the comparison measures the loop, not the tooling.
+- **A high-fidelity simulator today.** Failure signatures follow real behavior (NVML throttle reasons, XID 79 and PCIe downtraining lines, mlx5 link flaps, `NCCL_IB_HCA` effects, synchronous critical-path timing), every remediation costs what it would, and agents never see the hidden fault list. Next: point the read-only tools at Command Center on a live job.
+- **A deliberately tough baseline.** The single agent gets Capy's tools, so the comparison measures the loop, not the tooling.
+- **More to measure:** a bigger benchmark with more two-fault incidents, the shared brain's lift, and a Nemotron 3.5 Lightning fine-tune on verified incidents.
