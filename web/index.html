@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capy · babysits your training runs</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span id="logo"></span><div><h1>Capy</h1><p>babysits your GPU training runs</p></div></div>
+  <div class="jobpill"><b>yuzu-70b-pretrain</b> · 512× H100 · Crusoe CMK <span class="loc">us-east1-a</span></div>
+  <div class="stack">Agents on <b>Crusoe Managed Inference</b> · <span class="nv">Nemotron</span> + Qwen 3.8 skeptic</div>
+  <div class="clock"><span id="simclock">--:--:--</span><small>cluster time (UTC)</small></div>
+  <div class="you" id="you" title="You, asleep in the onsen"></div>
+</header>
+
+<div id="alert" class="alert hidden"></div>
+
+<main class="grid">
+  <section class="col">
+    <div class="card">
+      <div class="card-h"><h2>Training throughput</h2><div class="kpi"><span id="tps">–</span><small id="tpsratio"></small></div></div>
+      <svg id="chart" viewBox="0 0 560 220" preserveAspectRatio="none"></svg>
+      <div class="legend"><span class="lg base"></span>7-day baseline <span class="lg band"></span>97% done-line <span class="lg line"></span>tokens/s</div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h2>512 GPUs · 64 nodes + 2 hot spares</h2><div class="state" id="jobstate">running</div></div>
+      <div id="gpugrid" class="gpugrid"></div>
+      <div class="legend gl"><i class="c0"></i>ok <i class="c1"></i>warm <i class="c2"></i>slow/throttled <i class="c3"></i>dead <i class="c6"></i>restarting <i class="c4"></i>cordoned <i class="c5"></i>spare <i class="sus"></i>under suspicion</div>
+    </div>
+  </section>
+
+  <section class="col">
+    <div class="card team">
+      <div class="card-h"><h2>The on-call team</h2><small id="modelnote"></small></div>
+      <div id="cast" class="cast"></div>
+    </div>
+    <div class="card feedcard">
+      <div class="card-h"><h2>Investigation log</h2><small id="toolcount"></small></div>
+      <div id="feed" class="feed"></div>
+    </div>
+  </section>
+
+  <section class="col">
+    <div class="card">
+      <div class="card-h"><h2>Definition of done</h2><small>written before anyone investigates</small></div>
+      <ol id="contract" class="contract"><li class="muted">waiting for the alert…</li></ol>
+    </div>
+    <div class="card">
+      <div class="card-h"><h2>Case board</h2><small id="caseclock"></small></div>
+      <div id="board" class="board"></div>
+      <div id="proof" class="proof hidden"></div>
+      <div id="skeptic" class="skepticbox hidden"></div>
+      <div id="verify" class="verifybox hidden"><div class="vlabel">Verifying 200 steps…</div><div class="bar"><i id="vbar"></i></div><div id="vtext" class="vtext"></div></div>
+    </div>
+  </section>
+</main>
+
+<div id="ping" class="overlay hidden">
+  <div class="phone">
+    <div class="notch"></div>
+    <div class="ptitle"><span id="pingcapy"></span><div><b>Capy</b><small>needs one decision · ping 1 of 1</small></div></div>
+    <div id="pingbody" class="pbody"></div>
+    <div class="pbtns"><button id="deny" class="ghost">Deny</button><button id="approve">Approve</button></div>
+  </div>
+</div>
+
+<div id="closed" class="overlay hidden">
+  <div class="closedcard">
+    <div class="stamp">CASE CLOSED</div>
+    <div class="closedrow"><span id="closedcapy"></span><div id="closedbody"></div></div>
+  </div>
+</div>
+
+<div id="score" class="overlay hidden"><div class="scorecard" id="scorebody"></div></div>
+
+<div id="title" class="overlay titleov hidden"><div class="titlecard" id="titlebody"></div></div>
+<div id="card" class="overlay hidden"><div class="scorecard" id="cardbody"></div></div>
+<div id="caption" class="caption hidden"></div>
+
+<footer class="ctrl" id="ctrl">
+  <select id="tracesel"></select>
+  <button id="playbtn">▶ Replay</button>
+  <select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select>
+  <span class="sep"></span>
+  <select id="scensel"></select>
+  <button id="livebtn">⚡ Run live on Crusoe</button>
+  <a href="/results" class="link">Scoreboard →</a>
+</footer>
+
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>

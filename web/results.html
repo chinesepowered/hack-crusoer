@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capy scoreboard</title>
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .wrap { max-width: 1180px; margin: 24px auto; padding: 0 22px; display: flex; flex-direction: column; gap: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; }
+  td.num { font-family: ui-monospace, Menlo, monospace; }
+  td.win { color: #15803D; font-weight: 800; }
+  .tabs { display: flex; gap: 8px; }
+  .tabs button { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 6px 12px; cursor: pointer; font: inherit; }
+  .tabs button.on { background: var(--capy); color: #fff; border-color: var(--capy); }
+  .note { color: var(--muted); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span id="logo"></span><div><h1>Capy</h1><p>scoreboard</p></div></div>
+  <div class="stack">Simulated 512× H100 incidents with ground truth · agents live on <b>Crusoe Managed Inference</b></div>
+  <a href="/" class="link" style="margin-left:auto;color:var(--capy);font-weight:700;text-decoration:none">← back to the console</a>
+</header>
+<div class="wrap">
+  <div class="tabs"><button data-s="test" class="on">test (40 unseen incidents)</button><button data-s="dev">dev (18)</button></div>
+  <div class="card"><div class="card-h"><h2 id="title">Overall</h2></div><table id="overall"></table>
+    <p class="note">Same model (Nemotron 3.5 Super) and same tools for both. Capy adds: a definition of done written first, parallel Nemotron Nano triage, a governor for loops/stalls/budget, a counterfactual proof gate, a Qwen 3.8 skeptic, deterministic 200-step verification and one-ping approvals. "Fixed" is judged by the simulator's ground truth 75 minutes after the page, not by the agent.</p></div>
+  <div class="card"><div class="card-h"><h2>By category</h2></div><table id="cats"></table></div>
+  <div class="card"><div class="card-h"><h2>By fault</h2></div><table id="kinds"></table></div>
+</div>
+<script type="module">
+import { logoSVG } from "/static/capy.js";
+document.getElementById("logo").innerHTML = logoSVG(46);
+const ROWS = [["fixed_pct", "job actually fixed (%)", "high"], ["false_done_count", "false 'done' claims", "low"],
+  ["diagnosis_correct_pct", "correct root cause (%)", "high"], ["escalated_pct", "escalated / gave up (%)", "low"],
+  ["gpu_hours_lost_mean", "GPU-hours lost / incident", "low"], ["gpu_hours_lost_total", "GPU-hours lost (total)", "low"],
+  ["wasted_disruptive_actions", "wasted disruptive actions", "low"], ["pings_per_incident", "human pings / incident", "low"],
+  ["minutes_to_done_median", "minutes page → done (median)", "low"], ["tool_calls_mean", "tool calls / incident", "low"],
+  ["cost_usd_mean", "inference $ / incident", "low"]];
+function cell(v, w) { return `<td class="num ${w ? "win" : ""}">${v ?? "–"}</td>`; }
+function table(sum) {
+  const c = sum.capy || {}, b = sum.baseline || {};
+  return `<tr><th>metric</th><th>Capy team</th><th>single agent</th></tr>` + ROWS.map(([k, l, d]) => {
+    const vc = c[k], vb = b[k]; const cw = vc != null && vb != null && (d === "low" ? vc < vb : vc > vb); const bw = vc != null && vb != null && (d === "low" ? vb < vc : vb > vc);
+    return `<tr><td>${l}</td>${cell(vc, cw)}${cell(vb, bw)}</tr>`; }).join("");
+}
+async function load(split) {
+  const s = await (await fetch(`/api/results/${split}`)).json();
+  document.getElementById("overall").innerHTML = table(s.overall);
+  document.getElementById("cats").innerHTML = `<tr><th>category</th><th>n</th><th>Capy fixed / correct / GPU-h</th><th>single agent fixed / correct / GPU-h</th></tr>` +
+    Object.entries(s.by_category).filter(([, v]) => v.capy?.n || v.baseline?.n).map(([k, v]) => `<tr><td>${k}</td><td>${v.capy?.n ?? v.baseline?.n}</td>
+    <td class="num">${v.capy?.fixed_pct}% / ${v.capy?.diagnosis_correct_pct}% / ${v.capy?.gpu_hours_lost_mean}</td>
+    <td class="num">${v.baseline?.fixed_pct}% / ${v.baseline?.diagnosis_correct_pct}% / ${v.baseline?.gpu_hours_lost_mean}</td></tr>`).join("");
+  document.getElementById("kinds").innerHTML = `<tr><th>fault</th><th>Capy fixed / correct / GPU-h</th><th>single agent fixed / correct / GPU-h</th></tr>` +
+    Object.entries(s.by_kind).map(([k, v]) => `<tr><td>${k}</td><td class="num">${v.capy?.fixed_pct ?? "–"}% / ${v.capy?.diagnosis_correct_pct ?? "–"}% / ${v.capy?.gpu_hours_lost_mean ?? "–"}</td>
+    <td class="num">${v.baseline?.fixed_pct ?? "–"}% / ${v.baseline?.diagnosis_correct_pct ?? "–"}% / ${v.baseline?.gpu_hours_lost_mean ?? "–"}</td></tr>`).join("");
+}
+for (const b of document.querySelectorAll(".tabs button")) b.onclick = () => { document.querySelectorAll(".tabs button").forEach((x) => x.classList.remove("on")); b.classList.add("on"); load(b.dataset.s); };
+load("test").catch(() => load("dev"));
+</script>
+</body>
+</html>
